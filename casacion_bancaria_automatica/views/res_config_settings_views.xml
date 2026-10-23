@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.casacion.bancaria</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//app[@name='account']" position="inside">
+                <block title="Casación bancaria automática (ChatGPT)" name="casacion_bancaria_automatica">
+                    <setting string="Clave API de OpenAI"
+                             help="Vacía: se usa la clave del módulo de facturas con IA o la variable OPENAI_API_KEY.">
+                        <field name="casacion_openai_api_key" password="True" placeholder="sk-proj-..."/>
+                    </setting>
+                    <setting string="Modelo" help="Modelo de OpenAI, por ejemplo gpt-4o-mini o gpt-4o.">
+                        <field name="casacion_openai_model" placeholder="gpt-4o-mini"/>
+                    </setting>
+                    <setting string="URL base" help="Opcional, para endpoints compatibles con OpenAI.">
+                        <field name="casacion_openai_base" placeholder="https://api.openai.com/v1"/>
+                    </setting>
+                    <setting string="Prompts" help="Versiones del prompt que se envía a ChatGPT.">
+                        <button name="%(action_casacion_bancaria_prompt)d" type="action"
+                                string="Prompts IA de casación" icon="oi-arrow-right" class="btn-link"/>
+                    </setting>
+                </block>
+            </xpath>
+        </field>
+    </record>
+</odoo>

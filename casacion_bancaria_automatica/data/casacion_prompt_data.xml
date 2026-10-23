@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <function model="casacion.bancaria.prompt" name="_ensure_default_prompt"/>
+</odoo>

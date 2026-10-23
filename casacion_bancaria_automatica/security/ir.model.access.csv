@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_casacion_prompt_user,casacion.bancaria.prompt user,model_casacion_bancaria_prompt,account.group_account_user,1,0,0,0
+access_casacion_prompt_manager,casacion.bancaria.prompt manager,model_casacion_bancaria_prompt,account.group_account_manager,1,1,1,1
+access_casacion_wizard_user,casacion.bancaria.wizard user,model_casacion_bancaria_wizard,account.group_account_user,1,1,1,1
+access_casacion_wizard_line_user,casacion.bancaria.wizard.line user,model_casacion_bancaria_wizard_line,account.group_account_user,1,1,1,1

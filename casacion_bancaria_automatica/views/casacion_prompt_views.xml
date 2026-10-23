@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_casacion_bancaria_prompt_list" model="ir.ui.view">
+        <field name="name">casacion.bancaria.prompt.list</field>
+        <field name="model">casacion.bancaria.prompt</field>
+        <field name="arch" type="xml">
+            <list decoration-bf="is_current">
+                <field name="version"/>
+                <field name="name"/>
+                <field name="is_current"/>
+                <field name="company_id" optional="show"/>
+                <field name="parent_id" optional="hide"/>
+                <field name="notes" optional="show"/>
+                <field name="create_uid" string="Creado por"/>
+                <field name="create_date" string="Creado el"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_casacion_bancaria_prompt_form" model="ir.ui.view">
+        <field name="name">casacion.bancaria.prompt.form</field>
+        <field name="model">casacion.bancaria.prompt</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_set_current" type="object" string="Usar esta versión"
+                            class="btn-primary" invisible="is_current"
+                            confirm="Esta versión pasará a ser la que se envía a ChatGPT. ¿Continuar?"/>
+                    <button name="action_new_version" type="object" string="Nueva versión"/>
+                    <button name="action_load_default" type="object" string="Cargar prompt por defecto"
+                            invisible="is_current"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="En uso" invisible="not is_current"/>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="version"/>
+                            <field name="is_current"/>
+                        </group>
+                        <group>
+                            <field name="company_id" placeholder="General (todas las empresas)"/>
+                            <field name="parent_id"/>
+                            <field name="create_uid" string="Creado por" readonly="1"/>
+                            <field name="create_date" string="Creado el" readonly="1"/>
+                        </group>
+                    </group>
+                    <div class="text-muted" invisible="not is_current">
+                        La versión en uso no se puede editar. Pulse «Nueva versión», modifique la copia
+                        y pulse «Usar esta versión». Para volver a una versión anterior, ábrala y pulse
+                        «Usar esta versión».
+                    </div>
+                    <notebook>
+                        <page string="Prompt">
+                            <field name="prompt_text" readonly="is_current" nolabel="1"
+                                   widget="text" class="font-monospace"/>
+                        </page>
+                        <page string="Formato de respuesta (fijo)">
+                            <field name="response_format" nolabel="1" class="font-monospace"/>
+                        </page>
+                        <page string="Notas">
+                            <field name="notes" nolabel="1" placeholder="Qué cambia en esta versión y por qué"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_casacion_bancaria_prompt" model="ir.actions.act_window">
+        <field name="name">Prompts IA de casación bancaria</field>
+        <field name="res_model">casacion.bancaria.prompt</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

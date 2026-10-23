@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_casacion_bancaria_wizard"
+              name="Casación bancaria automática"
+              parent="account.menu_finance_entries"
+              action="action_casacion_bancaria_wizard"
+              groups="account.group_account_user"
+              sequence="5"/>
+    <menuitem id="menu_casacion_bancaria_prompt"
+              name="Prompts IA de casación bancaria"
+              parent="account.menu_finance_configuration"
+              action="action_casacion_bancaria_prompt"
+              groups="account.group_account_manager"
+              sequence="90"/>
+</odoo>

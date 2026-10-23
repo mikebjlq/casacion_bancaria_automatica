@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_casacion_bancaria_wizard_form" model="ir.ui.view">
+        <field name="name">casacion.bancaria.wizard.form</field>
+        <field name="model">casacion.bancaria.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Casación bancaria automática">
+                <header>
+                    <button name="action_search" type="object" string="Buscar propuestas"
+                            class="btn-primary" invisible="state != 'filtros'"/>
+                    <button name="action_reconcile" type="object" string="Conciliar marcados"
+                            class="btn-primary" invisible="state != 'propuestas'"
+                            confirm="¿Conciliar los movimientos marcados con el apunte propuesto?"/>
+                    <button name="action_select_all" type="object" string="Marcar todos"
+                            invisible="state != 'propuestas'"/>
+                    <button name="action_unselect_all" type="object" string="Desmarcar todos"
+                            invisible="state != 'propuestas'"/>
+                    <button name="action_search" type="object" string="Volver a buscar"
+                            invisible="state != 'propuestas'"/>
+                    <button name="action_back" type="object" string="Cambiar filtros"
+                            invisible="state != 'propuestas'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <field name="company_id" invisible="1"/>
+                    <group invisible="state != 'filtros'">
+                        <group string="Movimientos bancarios">
+                            <field name="journal_ids" widget="many2many_tags"
+                                   placeholder="Todos los diarios de banco y caja"
+                                   options="{'no_create': True}"/>
+                            <field name="st_date_from" placeholder="Sin límite"/>
+                            <field name="st_date_to" placeholder="Sin límite"/>
+                        </group>
+                        <group string="Apuntes a casar">
+                            <field name="aml_date_from" placeholder="Sin límite"/>
+                            <field name="aml_date_to" placeholder="Sin límite"/>
+                            <field name="min_score"/>
+                            <field name="use_ai"/>
+                            <field name="prompt_id" invisible="not use_ai"
+                                   options="{'no_create': True}"/>
+                        </group>
+                    </group>
+                    <div invisible="state != 'filtros'" class="text-muted">
+                        Se buscan los movimientos bancarios sin conciliar y, para cada uno, los apuntes
+                        pendientes (clientes, proveedores, traspasos…) con exactamente el mismo importe.
+                        Si hay varios, se propone el que más se parece (empresa, referencias y fechas;
+                        con ChatGPT si está marcado). Las fechas vacías no filtran.
+                    </div>
+                    <group invisible="state != 'propuestas'">
+                        <field name="summary" nolabel="1" colspan="2"/>
+                    </group>
+                    <field name="line_ids" invisible="state != 'propuestas'" nolabel="1">
+                        <list editable="bottom" create="0" delete="1"
+                              decoration-success="state == 'conciliado'"
+                              decoration-danger="state == 'error'"
+                              decoration-warning="state == 'pendiente' and candidate_count &gt; 1"
+                              decoration-muted="state == 'pendiente' and not move_line_id">
+                            <field name="selected" widget="boolean_toggle" readonly="state != 'pendiente'"/>
+                            <field name="st_date" readonly="1"/>
+                            <field name="st_journal_id" readonly="1" optional="hide"/>
+                            <field name="st_ref" readonly="1"/>
+                            <field name="st_partner_id" readonly="1" optional="hide"/>
+                            <field name="currency_id" column_invisible="1"/>
+                            <field name="st_amount" readonly="1" sum="Total"/>
+                            <field name="candidate_ids" column_invisible="1"/>
+                            <field name="candidate_count" readonly="1" string="Cand."/>
+                            <field name="move_line_id" readonly="state != 'pendiente'"
+                                   context="{'casacion_display': True}"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <field name="aml_maturity" readonly="1" optional="show"/>
+                            <field name="aml_partner_id" readonly="1" optional="show"/>
+                            <field name="aml_account_id" readonly="1" optional="hide"/>
+                            <field name="score" readonly="1" widget="progressbar"/>
+                            <field name="source" readonly="1" optional="show"/>
+                            <field name="reason" readonly="1" optional="show"/>
+                            <field name="state" readonly="1" optional="show"/>
+                            <field name="error" readonly="1" optional="show"/>
+                            <button name="action_show_candidates" type="object" icon="fa-list"
+                                    title="Ver candidatos" invisible="candidate_count &lt; 2"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_casacion_bancaria_wizard" model="ir.actions.act_window">
+        <field name="name">Casación bancaria automática</field>
+        <field name="res_model">casacion.bancaria.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+</odoo>
