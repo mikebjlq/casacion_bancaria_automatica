@@ -4,7 +4,7 @@
         <field name="name">casacion.bancaria.prompt.list</field>
         <field name="model">casacion.bancaria.prompt</field>
         <field name="arch" type="xml">
-            <list decoration-bf="is_current">
+            <tree decoration-bf="is_current">
                 <field name="version"/>
                 <field name="name"/>
                 <field name="is_current"/>
@@ -13,7 +13,7 @@
                 <field name="notes" optional="show"/>
                 <field name="create_uid" string="Creado por"/>
                 <field name="create_date" string="Creado el"/>
-            </list>
+            </tree>
         </field>
     </record>
 
@@ -70,6 +70,6 @@
     <record id="action_casacion_bancaria_prompt" model="ir.actions.act_window">
         <field name="name">Prompts IA de casación bancaria</field>
         <field name="res_model">casacion.bancaria.prompt</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">tree,form</field>
     </record>
 </odoo>

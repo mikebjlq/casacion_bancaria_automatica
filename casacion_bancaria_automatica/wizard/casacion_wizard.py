@@ -560,7 +560,7 @@ class CasacionBancariaWizardLine(models.TransientModel):
             "type": "ir.actions.act_window",
             "name": _("Candidatos de %s", self.statement_line_id.payment_ref or ""),
             "res_model": "account.move.line",
-            "view_mode": "list",
+            "view_mode": "tree",
             "domain": [("id", "in", self.candidate_ids.ids)],
             "target": "new",
             "context": {"create": False, "edit": False, "delete": False},
