@@ -154,7 +154,9 @@ class CasacionBancariaWizard(models.TransientModel):
                     st_line.partner_name,
                     st_line.partner_id.name,
                     st_line.narration and re.sub(r"<[^>]+>", " ", str(st_line.narration)),
-                    st_line.transaction_details and str(st_line.transaction_details),
+                    "transaction_details" in st_line._fields
+                    and st_line.transaction_details
+                    and str(st_line.transaction_details),
                 ],
             )
         )

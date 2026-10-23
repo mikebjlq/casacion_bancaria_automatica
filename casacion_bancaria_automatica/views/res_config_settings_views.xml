@@ -5,23 +5,41 @@
         <field name="model">res.config.settings</field>
         <field name="inherit_id" ref="account.res_config_settings_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//app[@name='account']" position="inside">
-                <block title="Casación bancaria automática (ChatGPT)" name="casacion_bancaria_automatica">
-                    <setting string="Clave API de OpenAI"
-                             help="Vacía: se usa la clave del módulo de facturas con IA o la variable OPENAI_API_KEY.">
-                        <field name="casacion_openai_api_key" password="True" placeholder="sk-proj-..."/>
-                    </setting>
-                    <setting string="Modelo" help="Modelo de OpenAI, por ejemplo gpt-4o-mini o gpt-4o.">
-                        <field name="casacion_openai_model" placeholder="gpt-4o-mini"/>
-                    </setting>
-                    <setting string="URL base" help="Opcional, para endpoints compatibles con OpenAI.">
-                        <field name="casacion_openai_base" placeholder="https://api.openai.com/v1"/>
-                    </setting>
-                    <setting string="Prompts" help="Versiones del prompt que se envía a ChatGPT.">
-                        <button name="%(action_casacion_bancaria_prompt)d" type="action"
-                                string="Prompts IA de casación" icon="oi-arrow-right" class="btn-link"/>
-                    </setting>
-                </block>
+            <xpath expr="//div[@data-key='account']" position="inside">
+                <h2>Casación bancaria automática (ChatGPT)</h2>
+                <div class="row mt16 o_settings_container" name="casacion_bancaria_automatica">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="casacion_openai_api_key" string="Clave API de OpenAI"/>
+                            <div class="text-muted">
+                                Vacía: se usa la clave del módulo de facturas con IA o la variable OPENAI_API_KEY.
+                            </div>
+                            <field name="casacion_openai_api_key" password="True" placeholder="sk-proj-..."/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="casacion_openai_model" string="Modelo"/>
+                            <div class="text-muted">Modelo de OpenAI, por ejemplo gpt-4o-mini o gpt-4o.</div>
+                            <field name="casacion_openai_model" placeholder="gpt-4o-mini"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="casacion_openai_base" string="URL base"/>
+                            <div class="text-muted">Opcional, para endpoints compatibles con OpenAI.</div>
+                            <field name="casacion_openai_base" placeholder="https://api.openai.com/v1"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <span class="o_form_label">Prompts</span>
+                            <div class="text-muted">Versiones del prompt que se envía a ChatGPT.</div>
+                            <button name="%(action_casacion_bancaria_prompt)d" type="action"
+                                    string="Prompts IA de casación" icon="fa-arrow-right" class="btn-link"/>
+                        </div>
+                    </div>
+                </div>
             </xpath>
         </field>
     </record>

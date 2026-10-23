@@ -24,14 +24,14 @@
             <form>
                 <header>
                     <button name="action_set_current" type="object" string="Usar esta versión"
-                            class="btn-primary" invisible="is_current"
+                            class="btn-primary" attrs="{'invisible': [('is_current', '=', True)]}"
                             confirm="Esta versión pasará a ser la que se envía a ChatGPT. ¿Continuar?"/>
                     <button name="action_new_version" type="object" string="Nueva versión"/>
                     <button name="action_load_default" type="object" string="Cargar prompt por defecto"
-                            invisible="is_current"/>
+                            attrs="{'invisible': [('is_current', '=', True)]}"/>
                 </header>
                 <sheet>
-                    <widget name="web_ribbon" title="En uso" invisible="not is_current"/>
+                    <widget name="web_ribbon" title="En uso" attrs="{'invisible': [('is_current', '=', False)]}"/>
                     <group>
                         <group>
                             <field name="name"/>
@@ -45,14 +45,14 @@
                             <field name="create_date" string="Creado el" readonly="1"/>
                         </group>
                     </group>
-                    <div class="text-muted" invisible="not is_current">
+                    <div class="text-muted" attrs="{'invisible': [('is_current', '=', False)]}">
                         La versión en uso no se puede editar. Pulse «Nueva versión», modifique la copia
                         y pulse «Usar esta versión». Para volver a una versión anterior, ábrala y pulse
                         «Usar esta versión».
                     </div>
                     <notebook>
                         <page string="Prompt">
-                            <field name="prompt_text" readonly="is_current" nolabel="1"
+                            <field name="prompt_text" attrs="{'readonly': [('is_current', '=', True)]}" nolabel="1"
                                    widget="text" class="font-monospace"/>
                         </page>
                         <page string="Formato de respuesta (fijo)">

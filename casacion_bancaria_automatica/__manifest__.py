@@ -3,7 +3,7 @@
 
 {
     "name": "Casación bancaria automática",
-    "version": "17.0.1.0.0",
+    "version": "16.0.1.0.0",
     "category": "Accounting",
     "author": "Tetra Consultores",
     "license": "AGPL-3",
