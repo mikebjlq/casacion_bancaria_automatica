@@ -8,9 +8,9 @@
                 <field name="version"/>
                 <field name="name"/>
                 <field name="is_current"/>
-                <field name="company_id" optional="show"/>
-                <field name="parent_id" optional="hide"/>
-                <field name="notes" optional="show"/>
+                <field name="company_id"/>
+                <field name="parent_id"/>
+                <field name="notes"/>
                 <field name="create_uid" string="Creado por"/>
                 <field name="create_date" string="Creado el"/>
             </tree>
@@ -31,7 +31,6 @@
                             attrs="{'invisible': [('is_current', '=', True)]}"/>
                 </header>
                 <sheet>
-                    <widget name="web_ribbon" title="En uso" attrs="{'invisible': [('is_current', '=', False)]}"/>
                     <group>
                         <group>
                             <field name="name"/>
@@ -53,10 +52,10 @@
                     <notebook>
                         <page string="Prompt">
                             <field name="prompt_text" attrs="{'readonly': [('is_current', '=', True)]}" nolabel="1"
-                                   widget="text" class="font-monospace"/>
+                                   widget="text" />
                         </page>
                         <page string="Formato de respuesta (fijo)">
-                            <field name="response_format" nolabel="1" class="font-monospace"/>
+                            <field name="response_format" nolabel="1" />
                         </page>
                         <page string="Notas">
                             <field name="notes" nolabel="1" placeholder="Qué cambia en esta versión y por qué"/>
@@ -70,6 +69,7 @@
     <record id="action_casacion_bancaria_prompt" model="ir.actions.act_window">
         <field name="name">Prompts IA de casación bancaria</field>
         <field name="res_model">casacion.bancaria.prompt</field>
+        <field name="view_type">form</field>
         <field name="view_mode">tree,form</field>
     </record>
 </odoo>

@@ -8,17 +8,14 @@ import re
 import unicodedata
 from collections import defaultdict
 
+import requests
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 from ..models.casacion_prompt import RESPONSE_FORMAT
 
 _logger = logging.getLogger(__name__)
-
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
 
 AI_BATCH_SIZE = 15  # movimientos bancarios por llamada a la IA
 AI_MAX_CANDIDATES = 15  # candidatos por movimiento que se envían a la IA
@@ -45,7 +42,7 @@ def _tokens(text):
 
 
 def _compact(text):
-    """Texto sin separadores ni ceros a la izquierda de los números, para buscar referencias."""
+    """Texto sin separadores, para buscar referencias."""
     return re.sub(r"[^a-z0-9]", "", _norm(text))
 
 
@@ -59,7 +56,7 @@ class CasacionBancariaWizard(models.TransientModel):
         required=True,
     )
     company_id = fields.Many2one(
-        "res.company", default=lambda self: self.env.company, required=True
+        "res.company", default=lambda self: self.env.user.company_id, required=True
     )
     journal_ids = fields.Many2many(
         "account.journal",
@@ -71,6 +68,11 @@ class CasacionBancariaWizard(models.TransientModel):
     st_date_to = fields.Date(string="Movimientos bancarios hasta")
     aml_date_from = fields.Date(string="Apuntes a casar desde")
     aml_date_to = fields.Date(string="Apuntes a casar hasta")
+    min_score = fields.Integer(
+        string="Marcar si la confianza es al menos",
+        default=50,
+        help="Las propuestas con menos confianza se muestran desmarcadas.",
+    )
     use_ai = fields.Boolean(
         string="Usar ChatGPT",
         default=True,
@@ -81,15 +83,10 @@ class CasacionBancariaWizard(models.TransientModel):
         "casacion.bancaria.prompt",
         string="Prompt",
         default=lambda self: self.env["casacion.bancaria.prompt"]._get_current(
-            self.env.company
+            self.env.user.company_id
         ),
         domain="['|', ('company_id', '=', False), ('company_id', '=', company_id)]",
         help="Versión del prompt que se envía a ChatGPT. Por defecto, la que está en uso.",
-    )
-    min_score = fields.Integer(
-        string="Marcar si la confianza es al menos",
-        default=50,
-        help="Las propuestas con menos confianza se muestran desmarcadas.",
     )
     line_ids = fields.One2many(
         "casacion.bancaria.wizard.line", "wizard_id", string="Propuestas"
@@ -102,8 +99,10 @@ class CasacionBancariaWizard(models.TransientModel):
     def _get_statement_lines(self):
         domain = [
             ("company_id", "=", self.company_id.id),
-            ("is_reconciled", "=", False),
-            ("state", "=", "posted"),
+            ("journal_entry_ids", "=", False),
+            ("account_id", "=", False),
+            ("statement_id.state", "=", "open"),
+            ("amount", "!=", 0.0),
         ]
         if self.journal_ids:
             domain.append(("journal_id", "in", self.journal_ids.ids))
@@ -115,51 +114,71 @@ class CasacionBancariaWizard(models.TransientModel):
             domain.append(("date", "<=", self.st_date_to))
         return self.env["account.bank.statement.line"].search(domain, order="date, id")
 
-    def _get_candidate_domain(self):
-        journals = self.env["account.journal"].search(
-            [("company_id", "=", self.company_id.id), ("type", "in", ("bank", "cash"))]
-        )
-        excluded_accounts = (
-            journals.mapped("suspense_account_id") | journals.mapped("default_account_id")
-        )
-        domain = [
-            ("company_id", "=", self.company_id.id),
-            ("parent_state", "=", "posted"),
-            ("account_id.reconcile", "=", True),
-            ("account_id.account_type", "not in", ("asset_cash", "liability_credit_card")),
-            ("account_id", "not in", excluded_accounts.ids),
-            ("reconciled", "=", False),
-            ("amount_residual", "!=", 0.0),
-            ("display_type", "not in", ("line_section", "line_note")),
-        ]
+    def _date_domain(self):
+        domain = []
         if self.aml_date_from:
             domain.append(("date", ">=", self.aml_date_from))
         if self.aml_date_to:
             domain.append(("date", "<=", self.aml_date_to))
         return domain
 
+    def _get_open_items_domain(self):
+        """Apuntes pendientes de cuentas conciliables (clientes, proveedores, traspasos…)."""
+        return [
+            ("company_id", "=", self.company_id.id),
+            ("move_id.state", "=", "posted"),
+            ("account_id.reconcile", "=", True),
+            ("account_id.internal_type", "!=", "liquidity"),
+            ("reconciled", "=", False),
+            ("amount_residual", "!=", 0.0),
+        ] + self._date_domain()
+
+    def _get_payment_items_domain(self, journals):
+        """Pagos y cobros ya registrados en la cuenta del banco que aún no están en un extracto."""
+        accounts = journals.mapped("default_debit_account_id") | journals.mapped(
+            "default_credit_account_id"
+        )
+        return [
+            ("company_id", "=", self.company_id.id),
+            ("move_id.state", "=", "posted"),
+            ("account_id", "in", accounts.ids),
+            ("journal_id", "in", journals.ids),
+            ("statement_line_id", "=", False),
+        ] + self._date_domain()
+
     @api.model
     def _st_amount(self, st_line):
-        """Importe del movimiento en la moneda de la empresa (línea de liquidez)."""
-        liquidity, _suspense, _other = st_line._seek_for_lines()
-        return sum(liquidity.mapped("balance"))
+        """Importe del movimiento en la moneda de la empresa."""
+        company = st_line.company_id
+        currency = st_line.journal_currency_id or company.currency_id
+        if currency == company.currency_id:
+            return st_line.amount
+        return currency._convert(st_line.amount, company.currency_id, company, st_line.date)
+
+    @api.model
+    def _aml_amount(self, aml):
+        """Importe pendiente del apunte (los pagos en la cuenta del banco no tienen residual)."""
+        if aml.account_id.internal_type == "liquidity":
+            return aml.balance
+        return aml.amount_residual
 
     @api.model
     def _st_text(self, st_line):
         return " ".join(
             filter(
                 None,
-                [
-                    st_line.payment_ref,
-                    st_line.partner_name,
-                    st_line.partner_id.name,
-                    st_line.narration and re.sub(r"<[^>]+>", " ", str(st_line.narration)),
-                    "transaction_details" in st_line._fields
-                    and st_line.transaction_details
-                    and str(st_line.transaction_details),
-                ],
+                [st_line.name, st_line.ref, st_line.partner_name, st_line.partner_id.name,
+                 st_line.note],
             )
         )
+
+    @api.model
+    def _aml_refs(self, aml):
+        return {
+            aml.move_id.name, aml.move_id.ref, aml.name, aml.ref,
+            aml.invoice_id.number, aml.invoice_id.reference,
+            aml.payment_id.communication,
+        }
 
     @api.model
     def _score(self, st_line, st_text, aml, unique=False):
@@ -181,11 +200,7 @@ class CasacionBancariaWizard(models.TransientModel):
             reasons.append(_("empresa en el concepto"))
 
         st_numbers = {n.lstrip("0") for n in re.findall(r"\d+", st_text)}
-        refs = {
-            aml.move_id.name, aml.move_id.ref, aml.move_id.payment_reference,
-            aml.name, aml.ref,
-        }
-        for ref in filter(None, refs):
+        for ref in filter(None, self._aml_refs(aml)):
             if not re.search(r"\d", ref):
                 continue  # «TRANSFERENCIA», «TRASPASO»… no identifican nada
             ref_c = _compact(ref)
@@ -194,17 +209,17 @@ class CasacionBancariaWizard(models.TransientModel):
                 len(ref_digits) >= 4 and ref_digits in st_numbers
             ):
                 score += 35
-                reasons.append(_("referencia %s", ref))
+                reasons.append(_("referencia %s") % ref)
                 break
 
         ref_date = aml.date_maturity or aml.date
         days = (st_line.date - ref_date).days
         if days >= 0:
             score += round(25 * max(0.0, 1 - days / 60.0))
-            reasons.append(_("banco %s días después del vencimiento", days))
+            reasons.append(_("banco %s días después del vencimiento") % days)
         else:
             score += round(10 * max(0.0, 1 + days / 30.0))
-            reasons.append(_("banco %s días antes del vencimiento", -days))
+            reasons.append(_("banco %s días antes del vencimiento") % -days)
         return min(score, 100), ", ".join(reasons)
 
     def action_search(self):
@@ -215,24 +230,26 @@ class CasacionBancariaWizard(models.TransientModel):
         if not st_lines:
             raise UserError(_("No hay movimientos bancarios pendientes con esos filtros."))
 
+        AML = self.env["account.move.line"]
         pool = defaultdict(lambda: self.env["account.move.line"])
-        for aml in self.env["account.move.line"].search(self._get_candidate_domain()):
+        for aml in AML.search(self._get_open_items_domain()):
             pool[currency.round(aml.amount_residual)] |= aml
+        # Pagos registrados, por diario: solo casan con extractos de su mismo diario.
+        payment_pool = defaultdict(lambda: self.env["account.move.line"])
+        for aml in AML.search(self._get_payment_items_domain(st_lines.mapped("journal_id"))):
+            payment_pool[(aml.journal_id.id, currency.round(aml.balance))] |= aml
 
-        # Para cada movimiento: candidatos con el mismo importe, puntuados.
         proposals = []
         without = 0
         for st in st_lines:
             amount = currency.round(self._st_amount(st))
-            cands = pool.get(amount, self.env["account.move.line"]).filtered(
-                lambda m, st=st: m.move_id != st.move_id
-            )
+            cands = pool.get(amount, AML) | payment_pool.get((st.journal_id.id, amount), AML)
             if not cands:
                 without += 1
                 continue
             st_text = self._st_text(st)
             scored = sorted(
-                ((aml, *self._score(st, st_text, aml, unique=len(cands) == 1))
+                ((aml,) + self._score(st, st_text, aml, unique=len(cands) == 1)
                  for aml in cands),
                 key=lambda x: (-x[1], abs((st.date - (x[0].date_maturity or x[0].date)).days)),
             )
@@ -296,20 +313,21 @@ class CasacionBancariaWizard(models.TransientModel):
                     "source": source,
                 }
             )
-        self.env["casacion.bancaria.wizard.line"].create(line_vals)
+        for vals in line_vals:
+            self.env["casacion.bancaria.wizard.line"].create(vals)
 
         n_multi = len(multi)
         summary = [
-            _("Movimientos bancarios pendientes revisados: %s", len(st_lines)),
-            _("Con propuesta: %s (con varios candidatos: %s)", len(proposals), n_multi),
-            _("Sin ningún apunte del mismo importe: %s", without),
+            _("Movimientos bancarios pendientes revisados: %s") % len(st_lines),
+            _("Con propuesta: %s (con varios candidatos: %s)") % (len(proposals), n_multi),
+            _("Sin ningún apunte del mismo importe: %s") % without,
         ]
         if self.use_ai and n_multi:
             summary.append(
-                _("ChatGPT no disponible, se ha usado la puntuación de Odoo: %s", ai_error)
+                _("ChatGPT no disponible, se ha usado la puntuación de Odoo: %s") % ai_error
                 if ai_error
-                else _("ChatGPT ha elegido entre candidatos (prompt: %s v%s).",
-                       self.prompt_id.name or "-", self.prompt_id.version or "-")
+                else _("ChatGPT ha elegido entre candidatos (prompt: %s v%s).")
+                % (self.prompt_id.name or "-", self.prompt_id.version or "-")
             )
         self.write({"state": "propuestas", "summary": "\n".join(summary)})
         return self._reopen()
@@ -333,9 +351,10 @@ class CasacionBancariaWizard(models.TransientModel):
             )
         return {
             "api_key": api_key,
-            "base_url": icp.get_param("casacion_bancaria_automatica.openai_base")
-            or icp.get_param("xtendoo_invoice_ai.openai_base")
-            or None,
+            "base_url": (
+                icp.get_param("casacion_bancaria_automatica.openai_base")
+                or "https://api.openai.com/v1"
+            ).rstrip("/"),
             "model": icp.get_param("casacion_bancaria_automatica.openai_model")
             or "gpt-4o-mini",
         }
@@ -350,7 +369,7 @@ class CasacionBancariaWizard(models.TransientModel):
                     "fecha": str(st.date),
                     "importe": self._st_amount(st),
                     "diario": st.journal_id.name,
-                    "concepto": st.payment_ref or "",
+                    "concepto": st.name or "",
                     "detalle": (p["text"] or "")[:500],
                     "empresa": st.partner_id.name or st.partner_name or "",
                     "candidatos": [
@@ -359,12 +378,14 @@ class CasacionBancariaWizard(models.TransientModel):
                             "fecha": str(aml.date),
                             "vencimiento": str(aml.date_maturity or aml.date),
                             "asiento": aml.move_id.name,
-                            "tipo": aml.move_id.move_type,
-                            "referencia": aml.move_id.ref or aml.move_id.payment_reference or "",
+                            "tipo": aml.invoice_id.type
+                            or (aml.payment_id and "pago_registrado")
+                            or aml.journal_id.type,
+                            "referencia": aml.move_id.ref or aml.invoice_id.reference or "",
                             "etiqueta": aml.name or "",
                             "empresa": aml.partner_id.name or "",
                             "cuenta": "%s %s" % (aml.account_id.code, aml.account_id.name),
-                            "pendiente": aml.amount_residual,
+                            "pendiente": self._aml_amount(aml),
                             "puntuacion_heuristica": score,
                         }
                         for aml, score, _reason in p["scored"][:AI_MAX_CANDIDATES]
@@ -374,10 +395,7 @@ class CasacionBancariaWizard(models.TransientModel):
         return {"movimientos_bancarios": data}
 
     def _ai_rank(self, proposals):
-        if not OpenAI:
-            raise UserError(_("La librería openai no está instalada."))
         creds = self._get_openai_credentials()
-        client = OpenAI(api_key=creds["api_key"], base_url=creds["base_url"], timeout=90)
         if self.prompt_id:
             system_prompt = self.prompt_id.prompt_text + RESPONSE_FORMAT
         else:
@@ -386,22 +404,35 @@ class CasacionBancariaWizard(models.TransientModel):
             )
         by_id = {p["st"].id: p for p in proposals}
         for i in range(0, len(proposals), AI_BATCH_SIZE):
-            batch = proposals[i : i + AI_BATCH_SIZE]
+            batch = proposals[i:i + AI_BATCH_SIZE]
             payload = json.dumps(self._ai_payload(batch), ensure_ascii=False, default=str)
-            response = client.chat.completions.create(
-                model=creds["model"],
-                temperature=0,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": payload},
-                ],
+            response = requests.post(
+                creds["base_url"] + "/chat/completions",
+                headers={
+                    "Authorization": "Bearer %s" % creds["api_key"],
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": creds["model"],
+                    "temperature": 0,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": payload},
+                    ],
+                },
+                timeout=90,
             )
-            content = response.choices[0].message.content or "{}"
+            if response.status_code != 200:
+                raise UserError(
+                    _("OpenAI respondió %s: %s") % (response.status_code, response.text[:300])
+                )
+            body = response.json()
+            content = body["choices"][0]["message"]["content"] or "{}"
             _logger.info(
                 "Casación bancaria IA: %s movimientos, tokens %s",
                 len(batch),
-                response.usage and response.usage.total_tokens,
+                (body.get("usage") or {}).get("total_tokens"),
             )
             result = json.loads(content)
             for item in result.get("propuestas", []):
@@ -438,6 +469,7 @@ class CasacionBancariaWizard(models.TransientModel):
             "res_model": self._name,
             "res_id": self.id,
             "view_mode": "form",
+            "view_type": "form",
             "target": "current",
         }
 
@@ -450,9 +482,11 @@ class CasacionBancariaWizard(models.TransientModel):
         self.line_ids.filtered(
             lambda line: line.move_line_id and line.state == "pendiente"
         ).write({"selected": True})
+        return self._reopen()
 
     def action_unselect_all(self):
         self.line_ids.write({"selected": False})
+        return self._reopen()
 
     def action_reconcile(self):
         self.ensure_one()
@@ -467,9 +501,8 @@ class CasacionBancariaWizard(models.TransientModel):
             raise UserError(
                 _(
                     "El apunte %s está elegido en más de un movimiento bancario. "
-                    "Corríjalo antes de conciliar.",
-                    repeated[0][0].move_line_id.display_name,
-                )
+                    "Corríjalo antes de conciliar."
+                ) % repeated[0][0].move_line_id.display_name
             )
         ok = 0
         for line in lines:
@@ -485,7 +518,7 @@ class CasacionBancariaWizard(models.TransientModel):
         errors = len(lines) - ok
         self.summary = "%s\n%s" % (
             self.summary or "",
-            _("Conciliados: %s. Con error: %s.", ok, errors),
+            _("Conciliados: %s. Con error: %s.") % (ok, errors),
         )
         return self._reopen()
 
@@ -510,7 +543,7 @@ class CasacionBancariaWizardLine(models.TransientModel):
     )
     st_date = fields.Date(related="statement_line_id.date", string="Fecha banco", store=True)
     st_journal_id = fields.Many2one(related="statement_line_id.journal_id", string="Diario")
-    st_ref = fields.Char(related="statement_line_id.payment_ref", string="Concepto")
+    st_ref = fields.Char(related="statement_line_id.name", string="Concepto")
     st_partner_id = fields.Many2one(related="statement_line_id.partner_id", string="Empresa banco")
     currency_id = fields.Many2one(related="wizard_id.company_id.currency_id")
     st_amount = fields.Monetary(string="Importe", currency_field="currency_id")
@@ -560,41 +593,52 @@ class CasacionBancariaWizardLine(models.TransientModel):
         self.ensure_one()
         return {
             "type": "ir.actions.act_window",
-            "name": _("Candidatos de %s", self.statement_line_id.payment_ref or ""),
+            "name": _("Candidatos de %s") % (self.statement_line_id.name or ""),
             "res_model": "account.move.line",
             "view_mode": "tree",
+            "view_type": "form",
             "domain": [("id", "in", self.candidate_ids.ids)],
             "target": "new",
             "context": {"create": False, "edit": False, "delete": False},
         }
 
     def _reconcile(self):
-        """Concilia el movimiento bancario con el apunte usando account_reconcile_oca."""
+        """Concilia el movimiento bancario con el apunte (process_reconciliation de Odoo 12)."""
         self.ensure_one()
         st = self.statement_line_id
         aml = self.move_line_id
         if not aml:
             raise UserError(_("No hay apunte elegido."))
-        if st.is_reconciled:
+        if st.journal_entry_ids:
             raise UserError(_("El movimiento bancario ya está conciliado."))
-        if aml.reconciled or aml.company_currency_id.is_zero(aml.amount_residual):
+        wizard = self.wizard_id
+        currency = aml.company_currency_id
+        is_payment = aml.account_id.internal_type == "liquidity"
+        if is_payment:
+            if aml.statement_line_id:
+                raise UserError(_("El pago ya está en otro extracto."))
+        elif aml.reconciled or currency.is_zero(aml.amount_residual):
             raise UserError(_("El apunte ya está conciliado."))
-        _liquidity, _suspense, other = st._seek_for_lines()
-        if other:
-            raise UserError(
-                _("El movimiento bancario ya tiene contrapartidas; concílielo a mano.")
-            )
-        if aml.company_currency_id.compare_amounts(
-            aml.amount_residual, self.wizard_id._st_amount(st)
-        ):
+        if currency.compare_amounts(wizard._aml_amount(aml), wizard._st_amount(st)):
             raise UserError(_("El importe pendiente del apunte ya no coincide."))
         if not st.partner_id and aml.partner_id:
-            st.partner_id = aml.partner_id
-        st.reconcile_data_info = st._default_reconcile_data(from_unreconcile=True)
-        st._add_account_move_line(aml)
-        if not st.can_reconcile:
-            raise UserError(_("Odoo no permite conciliar esta combinación."))
-        st.reconcile_bank_line()
-        st.invalidate_recordset(["is_reconciled"])
-        if not st.is_reconciled:
+            st.partner_id = aml.partner_id.commercial_partner_id
+        if is_payment:
+            st.process_reconciliation(payment_aml_rec=aml)
+        else:
+            # La contrapartida va en la moneda del extracto: con la moneda de la
+            # empresa basta con invertir el pendiente.
+            amount = st.amount
+            st.process_reconciliation(
+                counterpart_aml_dicts=[
+                    {
+                        "name": aml.name or st.name,
+                        "debit": -amount if amount < 0 else 0.0,
+                        "credit": amount if amount > 0 else 0.0,
+                        "move_line": aml,
+                    }
+                ]
+            )
+        st.invalidate_cache()
+        if not st.journal_entry_ids:
             raise UserError(_("La conciliación no ha quedado completa."))

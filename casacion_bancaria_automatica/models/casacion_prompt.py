@@ -66,7 +66,7 @@ class CasacionBancariaPrompt(models.Model):
     company_id = fields.Many2one(
         "res.company",
         string="Empresa",
-        default=lambda self: self.env.company,
+        default=lambda self: self.env.user.company_id,
         help="Vacío: prompt general para todas las empresas.",
     )
     parent_id = fields.Many2one(

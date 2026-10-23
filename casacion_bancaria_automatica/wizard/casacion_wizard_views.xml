@@ -58,9 +58,9 @@
                             <field name="selected" widget="boolean_toggle"
                                    attrs="{'readonly': [('state', '!=', 'pendiente')]}"/>
                             <field name="st_date" readonly="1"/>
-                            <field name="st_journal_id" readonly="1" optional="hide"/>
+                            <field name="st_journal_id" readonly="1"/>
                             <field name="st_ref" readonly="1"/>
-                            <field name="st_partner_id" readonly="1" optional="hide"/>
+                            <field name="st_partner_id" readonly="1"/>
                             <field name="currency_id" invisible="1"/>
                             <field name="st_amount" readonly="1" sum="Total"/>
                             <field name="candidate_ids" invisible="1"/>
@@ -68,14 +68,14 @@
                             <field name="move_line_id" attrs="{'readonly': [('state', '!=', 'pendiente')]}"
                                    context="{'casacion_display': True}"
                                    options="{'no_create': True, 'no_open': True}"/>
-                            <field name="aml_maturity" readonly="1" optional="show"/>
-                            <field name="aml_partner_id" readonly="1" optional="show"/>
-                            <field name="aml_account_id" readonly="1" optional="hide"/>
+                            <field name="aml_maturity" readonly="1"/>
+                            <field name="aml_partner_id" readonly="1"/>
+                            <field name="aml_account_id" readonly="1"/>
                             <field name="score" readonly="1" widget="progressbar"/>
-                            <field name="source" readonly="1" optional="show"/>
-                            <field name="reason" readonly="1" optional="show"/>
-                            <field name="state" readonly="1" optional="show"/>
-                            <field name="error" readonly="1" optional="show"/>
+                            <field name="source" readonly="1"/>
+                            <field name="reason" readonly="1"/>
+                            <field name="state" readonly="1"/>
+                            <field name="error" readonly="1"/>
                             <button name="action_show_candidates" type="object" icon="fa-list"
                                     title="Ver candidatos" attrs="{'invisible': [('candidate_count', '&lt;', 2)]}"/>
                         </tree>
@@ -88,6 +88,7 @@
     <record id="action_casacion_bancaria_wizard" model="ir.actions.act_window">
         <field name="name">Casación bancaria automática</field>
         <field name="res_model">casacion.bancaria.wizard</field>
+        <field name="view_type">form</field>
         <field name="view_mode">form</field>
         <field name="target">current</field>
     </record>

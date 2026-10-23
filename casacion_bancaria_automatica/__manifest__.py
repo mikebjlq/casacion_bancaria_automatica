@@ -3,14 +3,13 @@
 
 {
     "name": "Casación bancaria automática",
-    "version": "16.0.1.0.0",
+    "version": "12.0.1.0.0",
     "category": "Accounting",
     "author": "Tetra Consultores",
     "license": "AGPL-3",
-    "summary": "Propone y concilia movimientos bancarios por importe, con ayuda de ChatGPT",
+    "summary": "Propone y concilia movimientos bancarios por importe, con ayuda de ChatGPT (Odoo 12)",
     "depends": [
         "account",
-        "account_reconcile_oca",
     ],
     "data": [
         "security/ir.model.access.csv",
@@ -20,9 +19,6 @@
         "wizard/casacion_wizard_views.xml",
         "views/menus.xml",
     ],
-    "external_dependencies": {
-        "python": ["openai"],
-    },
     "installable": True,
     "application": False,
     "auto_install": False,
