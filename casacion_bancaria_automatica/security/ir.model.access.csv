@@ -3,3 +3,4 @@ access_casacion_prompt_user,casacion.bancaria.prompt user,model_casacion_bancari
 access_casacion_prompt_manager,casacion.bancaria.prompt manager,model_casacion_bancaria_prompt,account.group_account_manager,1,1,1,1
 access_casacion_wizard_user,casacion.bancaria.wizard user,model_casacion_bancaria_wizard,account.group_account_user,1,1,1,1
 access_casacion_wizard_line_user,casacion.bancaria.wizard.line user,model_casacion_bancaria_wizard_line,account.group_account_user,1,1,1,1
+access_casacion_wizard_candidate_user,casacion.bancaria.wizard.candidate user,model_casacion_bancaria_wizard_candidate,account.group_account_user,1,1,1,1

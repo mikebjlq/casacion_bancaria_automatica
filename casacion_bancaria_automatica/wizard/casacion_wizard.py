@@ -10,6 +10,7 @@ from collections import defaultdict
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools.misc import formatLang
 
 from ..models.casacion_prompt import RESPONSE_FORMAT
 
@@ -95,6 +96,18 @@ class CasacionBancariaWizard(models.TransientModel):
         "casacion.bancaria.wizard.line", "wizard_id", string="Propuestas"
     )
     summary = fields.Text(string="Resumen", readonly=True)
+    used_aml_ids = fields.Many2many(
+        "account.move.line",
+        compute="_compute_used_aml_ids",
+        string="Apuntes ya elegidos",
+    )
+
+    @api.depends("line_ids.move_line_id", "line_ids.state")
+    def _compute_used_aml_ids(self):
+        for wizard in self:
+            wizard.used_aml_ids = wizard.line_ids.filtered(
+                lambda line: line.state == "pendiente"
+            ).move_line_id
 
     # ------------------------------------------------------------------
     # Búsqueda
@@ -557,16 +570,82 @@ class CasacionBancariaWizardLine(models.TransientModel):
             self.selected = False
 
     def action_show_candidates(self):
+        """Abre los candidatos puntuados para comparar y elegir uno con «Elegir»."""
         self.ensure_one()
+        wizard = self.wizard_id
+        st = self.statement_line_id
+        st_text = wizard._st_text(st)
+        unique = len(self.candidate_ids) == 1
+        Candidate = self.env["casacion.bancaria.wizard.candidate"]
+        Candidate.search([("line_id", "=", self.id)]).unlink()
+        vals = []
+        for aml in self.candidate_ids:
+            score, reason = wizard._score(st, st_text, aml, unique=unique)
+            if aml == self.move_line_id and self.source == "ia":
+                reason = self.reason or reason
+            vals.append({
+                "line_id": self.id,
+                "move_line_id": aml.id,
+                "score": score,
+                "reason": reason,
+            })
+        Candidate.create(vals)
         return {
             "type": "ir.actions.act_window",
-            "name": _("Candidatos de %s", self.statement_line_id.payment_ref or ""),
-            "res_model": "account.move.line",
+            "name": _("Candidatos de %s (%s)",
+                      st.payment_ref or st.date,
+                      formatLang(self.env, self.st_amount,
+                                        currency_obj=self.currency_id)),
+            "res_model": "casacion.bancaria.wizard.candidate",
             "view_mode": "tree",
-            "domain": [("id", "in", self.candidate_ids.ids)],
+            "views": [(self.env.ref(
+                "casacion_bancaria_automatica.view_casacion_bancaria_wizard_candidate_list"
+            ).id, "tree")],
+            "domain": [("line_id", "=", self.id)],
             "target": "new",
             "context": {"create": False, "edit": False, "delete": False},
         }
+
+    def _set_move_line(self, aml):
+        """Elige ``aml`` para esta línea.
+
+        Si otra línea pendiente lo tenía elegido, se le da el apunte que tenía esta
+        (si también es candidato suyo) o se queda sin apunte; en ambos casos se
+        desmarca para que se revise.
+        """
+        self.ensure_one()
+        if self.state != "pendiente":
+            raise UserError(_("Esta propuesta ya no está pendiente."))
+        if aml not in self.candidate_ids:
+            raise UserError(_("El apunte no es candidato de este movimiento."))
+        previous = self.move_line_id
+        others = self.wizard_id.line_ids.filtered(
+            lambda line: line != self and line.state == "pendiente"
+            and line.move_line_id == aml
+        )
+        self.write({
+            "move_line_id": aml.id,
+            "selected": True,
+            "source": False,
+            "reason": _("Elegido a mano"),
+        })
+        for other in others:
+            if previous and previous != aml and previous in other.candidate_ids:
+                other.write({
+                    "move_line_id": previous.id,
+                    "selected": False,
+                    "source": False,
+                    "reason": _("Intercambiado con el movimiento %s del %s; revisar",
+                                self.st_ref or "", self.st_date),
+                })
+            else:
+                other.write({
+                    "move_line_id": False,
+                    "selected": False,
+                    "source": False,
+                    "reason": _("Su apunte se ha elegido para el movimiento %s del %s",
+                                self.st_ref or "", self.st_date),
+                })
 
     def _reconcile(self):
         """Concilia el movimiento bancario con el apunte usando account_reconcile_oca."""
@@ -598,3 +677,56 @@ class CasacionBancariaWizardLine(models.TransientModel):
         st.invalidate_recordset(["is_reconciled"])
         if not st.is_reconciled:
             raise UserError(_("La conciliación no ha quedado completa."))
+
+
+class CasacionBancariaWizardCandidate(models.TransientModel):
+    _name = "casacion.bancaria.wizard.candidate"
+    _description = "Candidato de casación bancaria"
+    _order = "is_current desc, score desc, aml_maturity, id"
+
+    line_id = fields.Many2one(
+        "casacion.bancaria.wizard.line", required=True, ondelete="cascade"
+    )
+    move_line_id = fields.Many2one(
+        "account.move.line", string="Apunte", required=True, ondelete="cascade"
+    )
+    currency_id = fields.Many2one(related="move_line_id.company_currency_id")
+    aml_date = fields.Date(related="move_line_id.date", string="Fecha")
+    aml_maturity = fields.Date(related="move_line_id.date_maturity", string="Vencimiento",
+                               store=True)
+    aml_move_id = fields.Many2one(related="move_line_id.move_id", string="Asiento")
+    aml_ref = fields.Char(related="move_line_id.move_id.ref", string="Referencia")
+    aml_name = fields.Char(related="move_line_id.name", string="Etiqueta")
+    aml_partner_id = fields.Many2one(related="move_line_id.partner_id", string="Empresa")
+    aml_account_id = fields.Many2one(related="move_line_id.account_id", string="Cuenta")
+    aml_residual = fields.Monetary(related="move_line_id.amount_residual",
+                                   string="Pendiente", currency_field="currency_id")
+    score = fields.Integer(string="Puntuación")
+    reason = fields.Char(string="Motivo")
+    is_current = fields.Boolean(string="Elegido", compute="_compute_is_current", store=True)
+    used_line_id = fields.Many2one(
+        "casacion.bancaria.wizard.line", string="Elegido en otro movimiento",
+        compute="_compute_usage",
+    )
+    used_info = fields.Char(string="Ya propuesto para", compute="_compute_usage")
+
+    @api.depends("line_id.move_line_id")
+    def _compute_is_current(self):
+        for cand in self:
+            cand.is_current = cand.line_id.move_line_id == cand.move_line_id
+
+    @api.depends("line_id.wizard_id.line_ids.move_line_id")
+    def _compute_usage(self):
+        for cand in self:
+            line = cand.line_id
+            other = line.wizard_id.line_ids.filtered(
+                lambda ln, cand=cand: ln != line and ln.state == "pendiente"
+                and ln.move_line_id == cand.move_line_id
+            )[:1]
+            cand.used_line_id = other
+            cand.used_info = other and "%s · %s" % (other.st_date, other.st_ref or "") or False
+
+    def action_choose(self):
+        self.ensure_one()
+        self.line_id._set_move_line(self.move_line_id)
+        return {"type": "ir.actions.act_window_close"}
