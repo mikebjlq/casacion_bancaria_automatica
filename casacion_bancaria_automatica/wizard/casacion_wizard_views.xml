@@ -23,6 +23,7 @@
                 </header>
                 <sheet>
                     <field name="company_id" invisible="1"/>
+                    <field name="used_aml_ids" invisible="1"/>
                     <group invisible="state != 'filtros'">
                         <group string="Movimientos bancarios">
                             <field name="journal_ids" widget="many2many_tags"
@@ -65,6 +66,7 @@
                             <field name="candidate_ids" column_invisible="1"/>
                             <field name="candidate_count" readonly="1" string="Cand."/>
                             <field name="move_line_id" readonly="state != 'pendiente'"
+                                   domain="[('id', 'in', candidate_ids), ('id', 'not in', parent.used_aml_ids)]"
                                    context="{'casacion_display': True}"
                                    options="{'no_create': True, 'no_open': True}"/>
                             <field name="aml_maturity" readonly="1" optional="show"/>
@@ -76,11 +78,42 @@
                             <field name="state" readonly="1" optional="show"/>
                             <field name="error" readonly="1" optional="show"/>
                             <button name="action_show_candidates" type="object" icon="fa-list"
-                                    title="Ver candidatos" invisible="candidate_count &lt; 2"/>
+                                    title="Ver y elegir candidato"
+                                    invisible="candidate_count &lt; 2 or state != 'pendiente'"/>
                         </list>
                     </field>
                 </sheet>
             </form>
+        </field>
+    </record>
+
+    <record id="view_casacion_bancaria_wizard_candidate_list" model="ir.ui.view">
+        <field name="name">casacion.bancaria.wizard.candidate.list</field>
+        <field name="model">casacion.bancaria.wizard.candidate</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0"
+                  decoration-info="is_current"
+                  decoration-muted="used_line_id and not is_current">
+                <field name="is_current" widget="boolean" string="Actual"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="aml_maturity"/>
+                <field name="aml_date" optional="hide"/>
+                <field name="aml_move_id"/>
+                <field name="aml_partner_id"/>
+                <field name="aml_ref" optional="show"/>
+                <field name="aml_name" optional="show"/>
+                <field name="aml_account_id" optional="hide"/>
+                <field name="aml_residual" optional="hide"/>
+                <field name="score" widget="progressbar"/>
+                <field name="reason"/>
+                <field name="used_line_id" column_invisible="1"/>
+                <field name="used_info"/>
+                <button name="action_choose" type="object" string="Elegir"
+                        class="btn-primary btn-sm" invisible="is_current or used_line_id"/>
+                <button name="action_choose" type="object" string="Elegir"
+                        class="btn-secondary btn-sm" invisible="is_current or not used_line_id"
+                        confirm="Este apunte ya está propuesto para otro movimiento. Si lo eliges aquí, ese movimiento se queda con el apunte que tenía este (si le sirve) o sin apunte, y desmarcado para revisarlo. ¿Continuar?"/>
+            </list>
         </field>
     </record>
 
