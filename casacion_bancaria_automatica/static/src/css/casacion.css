@@ -1,0 +1,32 @@
+/* Casación bancaria automática: el asistente ocupa todo el ancho de la pantalla. */
+.o_casacion_full.o_form_renderer,
+.o_casacion_full .o_form_renderer,
+.o_casacion_full .o_form_sheet_bg {
+    max-width: none !important;
+}
+.o_casacion_full .o_form_sheet {
+    max-width: none !important;
+    width: 100%;
+}
+/* Tabla de propuestas: anchos fijos y textos largos en varias líneas. */
+.o_casacion_full .o_field_one2many[name=line_ids] .o_list_renderer table {
+    table-layout: fixed !important;
+}
+.o_casacion_full .o_field_one2many[name=line_ids] th[data-name=reason] { width: 26% !important; }
+.o_casacion_full .o_field_one2many[name=line_ids] th[data-name=st_ref] { width: 14% !important; }
+.o_casacion_full .o_field_one2many[name=line_ids] th[data-name=move_line_id] { width: 16% !important; }
+.o_casacion_full .o_field_one2many[name=line_ids] th[data-name=aml_partner_id] { width: 11% !important; }
+.o_casacion_full .o_field_one2many[name=line_ids] th[data-name=error] { width: 6% !important; }
+.o_casacion_full .o_field_one2many[name=line_ids] td[name=reason],
+.o_casacion_full .o_field_one2many[name=line_ids] td[name=st_ref],
+.o_casacion_full .o_field_one2many[name=line_ids] td[name=move_line_id],
+.o_casacion_full .o_field_one2many[name=line_ids] td[name=aml_partner_id],
+.o_casacion_full .o_field_one2many[name=line_ids] td[name=error] {
+    white-space: normal !important;
+    word-break: break-word;
+    line-height: 1.25;
+}
+.o_casacion_full .o_field_one2many[name=line_ids] td[name=reason] { font-size: .88em; }
+/* Ventana de candidatos más ancha. */
+.modal-dialog:has(.o_casacion_candidates) { max-width: 94vw !important; }
+.o_casacion_candidates td[name=reason] { white-space: normal !important; font-size: .88em; line-height: 1.25; }

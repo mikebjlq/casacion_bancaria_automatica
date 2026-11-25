@@ -17,6 +17,35 @@
                     <setting string="URL base" help="Opcional, para endpoints compatibles con OpenAI.">
                         <field name="casacion_openai_base" placeholder="https://api.openai.com/v1"/>
                     </setting>
+                    <setting string="Margen de error"
+                             help="Casa facturas cuyo pendiente difiera del banco en ± un importe fijo o un porcentaje. La diferencia va a la cuenta de diferencias.">
+                        <field name="casacion_tolerance_type" widget="radio"/>
+                        <div class="mt-2" invisible="casacion_tolerance_type != 'fixed'">
+                            ± <field name="casacion_tolerance_amount" class="oe_inline"/> €
+                        </div>
+                        <div class="mt-2" invisible="casacion_tolerance_type != 'percent'">
+                            ± <field name="casacion_tolerance_percent" class="oe_inline"/> %
+                        </div>
+                    </setting>
+                    <setting string="Cuentas de diferencias"
+                             help="Dónde se lleva la diferencia cuando se casa con margen.">
+                        <div class="row mt-1">
+                            <label for="casacion_writeoff_expense_account_id" string="En contra" class="col-lg-4 o_light_label"/>
+                            <field name="casacion_writeoff_expense_account_id" options="{'no_create': True}"/>
+                        </div>
+                        <div class="row mt-1">
+                            <label for="casacion_writeoff_income_account_id" string="A favor" class="col-lg-4 o_light_label"/>
+                            <field name="casacion_writeoff_income_account_id" options="{'no_create': True}"/>
+                        </div>
+                    </setting>
+                    <setting string="Varias facturas en un pago"
+                             help="Busca combinaciones de facturas de la empresa del concepto cuya suma sea el importe del banco. 1 = no combinar.">
+                        <field name="casacion_max_invoices"/>
+                    </setting>
+                    <setting string="Pagos parciales"
+                             help="Anticipos y pagos a cuenta: se concilia parte de la factura y queda abierta por el resto.">
+                        <field name="casacion_allow_partial"/>
+                    </setting>
                     <setting string="Prompts" help="Versiones del prompt que se envía a ChatGPT.">
                         <button name="%(action_casacion_bancaria_prompt)d" type="action"
                                 string="Prompts IA de casación" icon="oi-arrow-right" class="btn-link"/>

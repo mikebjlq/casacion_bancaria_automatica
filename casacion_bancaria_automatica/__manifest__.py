@@ -3,7 +3,7 @@
 
 {
     "name": "Casación bancaria automática",
-    "version": "17.0.1.0.0",
+    "version": "17.0.1.1.0",
     "category": "Accounting",
     "author": "Tetra Consultores",
     "license": "AGPL-3",
@@ -15,14 +15,12 @@
     "data": [
         "security/ir.model.access.csv",
         "data/casacion_prompt_data.xml",
+        "data/casacion_assets.xml",
         "views/casacion_prompt_views.xml",
         "views/res_config_settings_views.xml",
         "wizard/casacion_wizard_views.xml",
         "views/menus.xml",
     ],
-    "external_dependencies": {
-        "python": ["openai"],
-    },
     "installable": True,
     "application": False,
     "auto_install": False,

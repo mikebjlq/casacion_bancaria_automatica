@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Se carga como ir.asset (y no en el manifiesto) para que solo afecte a las BD
+         que actualizan el módulo y no haga falta reiniciar Odoo. -->
+    <record id="asset_casacion_css" model="ir.asset">
+        <field name="name">Casación bancaria: ancho completo</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="path">casacion_bancaria_automatica/static/src/css/casacion.css</field>
+    </record>
+</odoo>
