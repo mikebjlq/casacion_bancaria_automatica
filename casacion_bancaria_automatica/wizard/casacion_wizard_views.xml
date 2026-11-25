@@ -4,7 +4,7 @@
         <field name="name">casacion.bancaria.wizard.form</field>
         <field name="model">casacion.bancaria.wizard</field>
         <field name="arch" type="xml">
-            <form string="Casación bancaria automática">
+            <form string="Casación bancaria automática" class="o_casacion_full">
                 <header>
                     <button name="action_search" type="object" string="Buscar propuestas"
                             class="btn-primary" invisible="state != 'filtros'"/>
@@ -91,7 +91,7 @@
         <field name="name">casacion.bancaria.wizard.candidate.list</field>
         <field name="model">casacion.bancaria.wizard.candidate</field>
         <field name="arch" type="xml">
-            <list create="0" edit="0" delete="0"
+            <list create="0" edit="0" delete="0" class="o_casacion_candidates"
                   decoration-info="is_current"
                   decoration-muted="used_line_id and not is_current">
                 <field name="is_current" widget="boolean" string="Actual"/>

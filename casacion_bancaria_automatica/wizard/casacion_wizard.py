@@ -23,6 +23,9 @@ except ImportError:
 
 AI_BATCH_SIZE = 15  # movimientos bancarios por llamada a la IA
 AI_MAX_CANDIDATES = 15  # candidatos por movimiento que se envían a la IA
+# Confianza máxima de la IA cuando Odoo no ve en el concepto ni la empresa ni la referencia
+# del apunte elegido: así esa propuesta nunca se marca sola para conciliar.
+AI_MAX_SCORE_WITHOUT_EVIDENCE = 40
 MIN_TOKEN_LEN = 4
 STOP_WORDS = {
     "transferencia", "transferenci", "traspaso", "adeudo", "recibo", "cargo", "abono",
@@ -102,6 +105,11 @@ class CasacionBancariaWizard(models.TransientModel):
         string="Apuntes ya elegidos",
     )
 
+    def _compute_display_name(self):
+        # En la ruta de navegación, en vez de «casacion.bancaria.wizard,9».
+        for wizard in self:
+            wizard.display_name = _("Casación bancaria automática")
+
     @api.depends("line_ids.move_line_id", "line_ids.state")
     def _compute_used_aml_ids(self):
         for wizard in self:
@@ -173,24 +181,23 @@ class CasacionBancariaWizard(models.TransientModel):
         )
 
     @api.model
-    def _score(self, st_line, st_text, aml, unique=False):
-        """Puntuación 0-100 por empresa, referencias y fechas, con el motivo.
-
-        Un candidato único parte de 30: el importe exacto ya es un indicio fuerte.
-        """
-        score = 30 if unique else 0
-        reasons = [_("único apunte con ese importe")] if unique else []
-        st_tokens = _tokens(st_text)
-        st_compact = _compact(st_text)
-
+    def _partner_match(self, st_line, st_text, aml):
+        """«misma» si el movimiento tiene la empresa del apunte, «concepto» si su nombre
+        aparece en el texto del banco, o False."""
         partner = aml.partner_id.commercial_partner_id
-        if partner and st_line.partner_id.commercial_partner_id == partner:
-            score += 40
-            reasons.append(_("misma empresa"))
-        elif partner and st_tokens & _tokens(partner.name):
-            score += 30
-            reasons.append(_("empresa en el concepto"))
+        if not partner:
+            return False
+        if st_line.partner_id.commercial_partner_id == partner:
+            return "misma"
+        if _tokens(st_text) & _tokens(partner.name):
+            return "concepto"
+        return False
 
+    @api.model
+    def _ref_match(self, st_text, aml):
+        """Referencia del apunte (número de factura, ref. del proveedor…) que aparece en
+        el texto del banco, o False."""
+        st_compact = _compact(st_text)
         st_numbers = {n.lstrip("0") for n in re.findall(r"\d+", st_text)}
         refs = {
             aml.move_id.name, aml.move_id.ref, aml.move_id.payment_reference,
@@ -204,9 +211,37 @@ class CasacionBancariaWizard(models.TransientModel):
             if (len(ref_c) >= 5 and ref_c in st_compact) or (
                 len(ref_digits) >= 4 and ref_digits in st_numbers
             ):
-                score += 35
-                reasons.append(_("referencia %s", ref))
-                break
+                return ref
+        return False
+
+    @api.model
+    def _has_evidence(self, st_line, st_text, aml):
+        """¿Hay algo en el movimiento, aparte del importe, que señale a este apunte?"""
+        return bool(
+            self._partner_match(st_line, st_text, aml) or self._ref_match(st_text, aml)
+        )
+
+    @api.model
+    def _score(self, st_line, st_text, aml, unique=False):
+        """Puntuación 0-100 por empresa, referencias y fechas, con el motivo.
+
+        Un candidato único parte de 30: el importe exacto ya es un indicio fuerte.
+        """
+        score = 30 if unique else 0
+        reasons = [_("único apunte con ese importe")] if unique else []
+
+        partner_match = self._partner_match(st_line, st_text, aml)
+        if partner_match == "misma":
+            score += 40
+            reasons.append(_("misma empresa"))
+        elif partner_match == "concepto":
+            score += 30
+            reasons.append(_("empresa en el concepto"))
+
+        ref = self._ref_match(st_text, aml)
+        if ref:
+            score += 35
+            reasons.append(_("referencia %s", ref))
 
         ref_date = aml.date_maturity or aml.date
         days = (st_line.date - ref_date).days
@@ -280,6 +315,12 @@ class CasacionBancariaWizard(models.TransientModel):
                     score = ai["confianza"]
                     reason = "IA: %s" % (ai.get("motivo") or "")
                     source = "ia"
+                    if score > AI_MAX_SCORE_WITHOUT_EVIDENCE and not self._has_evidence(
+                        st, p["text"], chosen
+                    ):
+                        score = AI_MAX_SCORE_WITHOUT_EVIDENCE
+                        reason += _(" [Confianza limitada: el concepto no menciona ni la "
+                                    "empresa ni la referencia; revisar a mano]")
             if not chosen and ai and not ai.get("apunte_id"):
                 ai_rejected = True
                 reason = "IA: %s" % (ai.get("motivo") or _("ningún candidato encaja"))
@@ -377,6 +418,10 @@ class CasacionBancariaWizard(models.TransientModel):
                             "cuenta": "%s %s" % (aml.account_id.code, aml.account_id.name),
                             "pendiente": aml.amount_residual,
                             "puntuacion_heuristica": score,
+                            "pruebas_odoo": _reason,
+                            "dias_banco_tras_vencimiento": (
+                                st.date - (aml.date_maturity or aml.date)
+                            ).days,
                         }
                         for aml, score, _reason in p["scored"][:AI_MAX_CANDIDATES]
                     ],
