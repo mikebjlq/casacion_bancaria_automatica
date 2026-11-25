@@ -8,6 +8,8 @@ import re
 import unicodedata
 from collections import defaultdict
 
+import requests
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.misc import formatLang
@@ -15,11 +17,6 @@ from odoo.tools.misc import formatLang
 from ..models.casacion_prompt import RESPONSE_FORMAT
 
 _logger = logging.getLogger(__name__)
-
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
 
 AI_BATCH_SIZE = 15  # movimientos bancarios por llamada a la IA
 AI_MAX_CANDIDATES = 15  # candidatos por movimiento que se envían a la IA
@@ -374,12 +371,13 @@ class CasacionBancariaWizard(models.TransientModel):
         api_key = (
             icp.get_param("casacion_bancaria_automatica.openai_api_key")
             or icp.get_param("xtendoo_invoice_ai.openai_api_key")
+            or icp.get_param("openai_api_key")
             or os.environ.get("OPENAI_API_KEY")
         )
         if not api_key:
             raise UserError(
                 _(
-                    "No hay clave API de OpenAI. Configúrela en Ajustes → Facturación → "
+                    "No hay clave API de OpenAI. Configúrela en Ajustes → Contabilidad → "
                     "Casación bancaria automática."
                 )
             )
@@ -387,7 +385,7 @@ class CasacionBancariaWizard(models.TransientModel):
             "api_key": api_key,
             "base_url": icp.get_param("casacion_bancaria_automatica.openai_base")
             or icp.get_param("xtendoo_invoice_ai.openai_base")
-            or None,
+            or "https://api.openai.com/v1",
             "model": icp.get_param("casacion_bancaria_automatica.openai_model")
             or "gpt-4o-mini",
         }
@@ -429,11 +427,32 @@ class CasacionBancariaWizard(models.TransientModel):
             )
         return {"movimientos_bancarios": data}
 
+    @api.model
+    def _ai_chat(self, creds, system_prompt, payload):
+        """Llamada a chat/completions con requests (sin depender de la librería openai)."""
+        response = requests.post(
+            creds["base_url"].rstrip("/") + "/chat/completions",
+            headers={"Authorization": "Bearer %s" % creds["api_key"]},
+            json={
+                "model": creds["model"],
+                "temperature": 0,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": payload},
+                ],
+            },
+            timeout=90,
+        )
+        if response.status_code != 200:
+            raise UserError(
+                _("OpenAI respondió %(code)s: %(text)s",
+                  code=response.status_code, text=response.text[:300])
+            )
+        return response.json()
+
     def _ai_rank(self, proposals):
-        if not OpenAI:
-            raise UserError(_("La librería openai no está instalada."))
         creds = self._get_openai_credentials()
-        client = OpenAI(api_key=creds["api_key"], base_url=creds["base_url"], timeout=90)
         if self.prompt_id:
             system_prompt = self.prompt_id.prompt_text + RESPONSE_FORMAT
         else:
@@ -444,20 +463,12 @@ class CasacionBancariaWizard(models.TransientModel):
         for i in range(0, len(proposals), AI_BATCH_SIZE):
             batch = proposals[i : i + AI_BATCH_SIZE]
             payload = json.dumps(self._ai_payload(batch), ensure_ascii=False, default=str)
-            response = client.chat.completions.create(
-                model=creds["model"],
-                temperature=0,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": payload},
-                ],
-            )
-            content = response.choices[0].message.content or "{}"
+            response = self._ai_chat(creds, system_prompt, payload)
+            content = response["choices"][0]["message"].get("content") or "{}"
             _logger.info(
                 "Casación bancaria IA: %s movimientos, tokens %s",
                 len(batch),
-                response.usage and response.usage.total_tokens,
+                (response.get("usage") or {}).get("total_tokens"),
             )
             result = json.loads(content)
             for item in result.get("propuestas", []):
@@ -712,7 +723,7 @@ class CasacionBancariaWizardLine(models.TransientModel):
             raise UserError(_("El importe pendiente del apunte ya no coincide."))
         if not st.partner_id and aml.partner_id:
             st.partner_id = aml.partner_id
-        st.reconcile_data_info = st._default_reconcile_data(from_unreconcile=True)
+        st.reconcile_data_info = st._default_reconcile_data()
         st._add_account_move_line(aml)
         if not st.can_reconcile:
             raise UserError(_("Odoo no permite conciliar esta combinación."))

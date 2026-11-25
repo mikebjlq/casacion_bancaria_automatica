@@ -2,10 +2,11 @@
 
 Asistente que propone y concilia movimientos bancarios pendientes con apuntes contables del mismo importe. Si hay varios candidatos, propone el que más se parece (empresa, referencias, fechas) y, opcionalmente, deja elegir a ChatGPT con un prompt versionado y editable desde Odoo.
 
-Una rama por versión de Odoo: `12.0`, `16.0`, `17.0`, `18.0`.
+Una rama por versión de Odoo: `12.0`, `16.0`, `17.0`, `18.0`, `19.0`.
 
 | Rama | Conciliación | Dependencias |
 |---|---|---|
+| 19.0 | `account_reconcile_oca` (OCA/account-reconcile) | `account_reconcile_oca` (la API se llama con `requests`) |
 | 18.0 / 17.0 / 16.0 | `account_reconcile_oca` (OCA/account-reconcile) | `account_reconcile_oca`, librería Python `openai` |
 | 12.0 | Widget estándar de Odoo 12 (`process_reconciliation`) | solo `account` (la API se llama con `requests`) |
 
