@@ -354,6 +354,69 @@ class CasacionBancariaWizard(models.TransientModel):
         dfs(0, 0, [])
         return [self.env["account.move.line"].union(*r) for r in results]
 
+    def _assign_partial_pairs(self, proposals, chosen_by_st, used, by_partner, partners):
+        """Anticipo + resto: dos movimientos sin propuesta de la misma empresa que juntos
+        suman el pendiente de una factura. Se exige que alguno traiga la referencia de
+        la factura o que el primero hable de anticipo/pago a cuenta, salvo que solo haya
+        una factura posible."""
+        company = self.company_id
+        currency = company.currency_id
+        AML = self.env["account.move.line"]
+        pending = [p for p in sorted(proposals, key=lambda x: (x["st"].date, x["st"].id))
+                   if not (chosen_by_st.get(p["st"].id) or (None,))[0]]
+        found = {p["st"].id: self._partners_in_text(p["st"], p["text"], partners)
+                 for p in pending}
+        paired = set()
+        for i, p1 in enumerate(pending):
+            if p1["st"].id in paired or not found[p1["st"].id]:
+                continue
+            best = None
+            for p2 in pending[i + 1:]:
+                if p2["st"].id in paired:
+                    continue
+                common = set(found[p1["st"].id]) & set(found[p2["st"].id])
+                total = currency.round(p1["amount"] + p2["amount"])
+                tol = company._casacion_tolerance(total)
+                cands = []
+                for partner_id in common:
+                    for aml in by_partner.get(partner_id, AML):
+                        if (aml.id in used or aml.amount_residual * total <= 0
+                                or abs(aml.amount_residual - total) > tol + 0.005
+                                or abs(p1["amount"]) >= abs(aml.amount_residual)):
+                            continue
+                        has_ref = bool(self._ref_match(p1["text"], aml)
+                                       or self._ref_match(p2["text"], aml))
+                        cands.append((2 if has_ref else (1 if _partial_hint(p1["text"]) else 0),
+                                      aml))
+                if not cands:
+                    continue
+                cands.sort(key=lambda c: -c[0])
+                strength, aml = cands[0]
+                if strength == 0 and len(cands) > 1:
+                    continue  # varias facturas posibles y nada que las distinga
+                if len(cands) > 1 and cands[1][0] == strength:
+                    continue  # empate
+                if not best or strength > best[0]:
+                    best = (strength, aml, p2)
+            if not best:
+                continue
+            strength, aml, p2 = best
+            bonus = 10 * strength
+            o1 = self._option(p1["st"], p1["text"], aml, "parcial", p1["amount"])
+            o1["score"] = max(0, min(100, o1["score"] - 5 + bonus))
+            o1["reason"] = _("anticipo: con el movimiento del %(date)s suma la factura; %(r)s",
+                             date=p2["st"].date, r=o1["reason"])
+            o2 = self._option(p2["st"], p2["text"], aml, "resto", p2["amount"])
+            o2["diff"] = currency.round(p1["amount"] + p2["amount"] - aml.amount_residual)
+            o2["score"] = max(0, min(100, o2["score"] + bonus))
+            o2["reason"] = _("resto de la factura tras el anticipo del %(date)s; %(r)s",
+                             date=p1["st"].date, r=o2["reason"])
+            for p, o in ((p1, o1), (p2, o2)):
+                p["options"].append(o)
+                chosen_by_st[p["st"].id] = (o, o["score"], o["reason"], "heuristica", False)
+                paired.add(p["st"].id)
+            used.add(aml.id)
+
     def action_search(self):
         self.ensure_one()
         self.line_ids.unlink()
@@ -472,6 +535,7 @@ class CasacionBancariaWizard(models.TransientModel):
         # 3) Pagos parciales (anticipo y resto), por orden de fecha.
         partial_left = {}  # aml.id -> pendiente que queda tras los parciales propuestos
         if company.casacion_allow_partial:
+            self._assign_partial_pairs(proposals, chosen_by_st, used, by_partner, partners)
             for p in sorted(proposals, key=lambda x: (x["st"].date, x["st"].id)):
                 st, amount, tol = p["st"], p["amount"], p["tol"]
                 if chosen_by_st.get(p["st"].id, (None,))[0]:
