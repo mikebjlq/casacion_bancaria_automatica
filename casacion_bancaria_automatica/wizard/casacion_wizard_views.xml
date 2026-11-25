@@ -69,6 +69,16 @@
                                    domain="[('id', 'in', candidate_ids), ('id', 'not in', parent.used_aml_ids)]"
                                    context="{'casacion_display': True}"
                                    options="{'no_create': True, 'no_open': True}"/>
+                            <field name="move_line_ids" widget="many2many_tags" readonly="1"
+                                   optional="show" string="Facturas"
+                                   context="{'casacion_display': True}"/>
+                            <field name="match_type" readonly="1" widget="badge"
+                                   decoration-success="match_type == 'exacto'"
+                                   decoration-info="match_type in ('varias', 'resto')"
+                                   decoration-warning="match_type in ('tolerancia', 'parcial')"
+                                   decoration-danger="match_type == 'nocasa'"/>
+                            <field name="difference" readonly="1" optional="show"
+                                   invisible="not difference"/>
                             <field name="aml_maturity" readonly="1" optional="show"/>
                             <field name="aml_partner_id" readonly="1" optional="show"/>
                             <field name="aml_account_id" readonly="1" optional="hide"/>
